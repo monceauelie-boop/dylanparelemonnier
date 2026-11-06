@@ -648,6 +648,14 @@ html.modal-ouverte, html.modal-ouverte body { overflow: hidden; }
 .preco-texte { color: var(--ink-2); line-height: 1.6; }
 .preco-livraison { font-size: .85rem; color: var(--ink-2); margin-top: -10px; }
 
+/* Tee shirt grisé (bientôt disponible) */
+.produit--ferme { position: relative; }
+.produit--ferme .produit-media, .produit--ferme .vues, .produit--ferme .produit-corps { filter: grayscale(1); opacity: .45; pointer-events: none; user-select: none; }
+.produit-bientot { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; pointer-events: none; }
+.produit-bientot b { background: rgba(255,255,255,.92); border: 1px solid var(--ligne); border-radius: 999px; padding: 16px 26px; font-size: clamp(1.1rem, 2.6vw, 1.5rem); text-align: center; box-shadow: 0 20px 50px rgba(11,22,56,.14); color: var(--ink); }
+.interrupteur { display: flex; align-items: center; gap: 12px; font-weight: 700; cursor: pointer; }
+.interrupteur input { width: 22px; height: 22px; accent-color: #1f4fd6; }
+
 body:not([data-page='actualites']) [data-admin] { display: none; }
 body:not([data-page='boutique']) .seulement-boutique { display: none; }
 
@@ -1379,14 +1387,26 @@ window.RECHERCHE_INDEX = [{"titre": "Accueil", "url": "index.html", "texte": "Ch
   function initBoutique() {
     var grille = document.querySelector("[data-rendu='produits']");
     if (!grille) return;
-    if (C.precommande) { rendrePrecommande(grille); return; }
+    if (C.precommande) { lireOuverture().then(function (ouverte) { rendrePrecommande(grille, ouverte); }); return; }
     lireStock().then(function (stock) { rendre(grille, stock); });
   }
 
   /* PRÉCOMMANDE PAYANTE : tailles et quantités au choix, paiement Stripe créé par la fonction Supabase creer-paiement */
-  function rendrePrecommande(grille) {
+  /* Interrupteur géré depuis l'espace rédaction (table reglages, clé boutique_ouverte). En cas d'erreur de lecture, le module reste actif. */
+  function lireOuverture() {
+    var sb = clientStock();
+    if (!sb) return Promise.resolve(true);
+    return sb.from("reglages").select("valeur").eq("cle", "boutique_ouverte").maybeSingle().then(function (r) {
+      if (r.error || !r.data) return true;
+      return r.data.valeur !== false;
+    }, function () { return true; });
+  }
+  window.DPL_BOUTIQUE_RAFRAICHIR = function () { initBoutique(); };
+
+  function rendrePrecommande(grille, ouverte) {
     var retour = /[?&]paiement=(ok|annule)/.exec(location.search + location.hash);
-    grille.innerHTML = '<article class="produit verre" data-produit data-reveal>' +
+    grille.innerHTML = '<article class="produit verre' + (ouverte ? "" : " produit--ferme") + '" data-produit data-reveal>' +
+      (ouverte ? "" : '<div class="produit-bientot" role="status"><b>Tee Shirt DPL bientôt disponible !</b></div>') +
       '<div class="produit-media"><img class="vue" src="' + P.images[0] + '" alt="' + esc(P.nom) + ', vue de face"><img class="vue vue--dos" src="' + P.images[1] + '" alt="' + esc(P.nom) + ', vue de dos" loading="lazy"></div>' +
       '<div class="vues" role="group" aria-label="Choisir la vue"><button type="button" aria-pressed="true" data-v="0">Face</button><button type="button" aria-pressed="false" data-v="1">Dos</button></div>' +
       '<div class="produit-corps"><div class="badges-preco"><span class="badge badge--preco"><i></i>Édition limitée</span><span class="badge badge--preco">Précommande</span></div>' +
@@ -1404,6 +1424,7 @@ window.RECHERCHE_INDEX = [{"titre": "Accueil", "url": "index.html", "texte": "Ch
       '<button class="btn btn--tricolore" type="submit">Précommander et payer</button>' +
       '<p class="paiements">Paiement sécurisé sur Stripe par carte, Apple Pay ou Google Pay</p>' +
       '</form></div></article>';
+    if (!ouverte) grille.querySelectorAll("#preco-form input, #preco-form button").forEach(function (x) { x.disabled = true; });
     if (window.SITE_REVEAL) window.SITE_REVEAL(grille);
   }
   function quantites(form) {
@@ -1662,7 +1683,7 @@ window.RECHERCHE_INDEX = [{"titre": "Accueil", "url": "index.html", "texte": "Ch
     var m = ouvrir(
       '<div class="admin-item" style="border-top:0;padding-top:0"><div><b>Connecté</b><span>' + esc(user.email) + '</span></div><button class="btn btn--verre btn--mini" type="button" id="admin-logout">Se déconnecter</button></div>' +
       '<div class="onglets verre admin-onglets" role="tablist" aria-label="Espace rédaction"><button type="button" role="tab" data-admin-vue="articles" aria-selected="true">Articles</button><button type="button" role="tab" data-admin-vue="precommandes" aria-selected="false">Précommandes</button><button type="button" role="tab" data-admin-vue="stock" aria-selected="false">Stock tee shirts</button></div>' +
-      '<div class="admin-stock" data-vue="precommandes" hidden><div id="preco-admin"><p style="color:var(--ink-2)">Chargement…</p></div></div>' +
+      '<div class="admin-stock" data-vue="precommandes" hidden><label class="interrupteur"><input type="checkbox" id="boutique-ouverte"><span>Tee shirt disponible à la précommande</span></label><p class="statut" id="boutique-ouverte-status" role="status">Décoché : le module du tee shirt est grisé sur la page Boutique avec le message « Tee Shirt DPL bientôt disponible ! ».</p><div id="preco-admin"><p style="color:var(--ink-2)">Chargement…</p></div></div>' +
       '<div class="admin-stock" data-vue="stock" hidden>' +
       '<p>Ajuste le nombre de tee shirts disponibles pour chaque taille, puis enregistre. Quand toutes les tailles sont à 0, le tee shirt passe en gris sur le site et le bouton Commander est remplacé par « Rupture de stock ».</p>' +
       '<div class="stock-admin" id="stock-admin"><p style="color:var(--ink-2)">Chargement…</p></div>' +
@@ -1696,7 +1717,27 @@ window.RECHERCHE_INDEX = [{"titre": "Accueil", "url": "index.html", "texte": "Ch
     /* Précommandes (table precommandes) */
     var zonePreco = m.querySelector("#preco-admin");
     var TAILLES_P = ["XS", "S", "M", "L", "XL", "2XL"];
+    var caseOuverte = m.querySelector("#boutique-ouverte"), stOuverte = m.querySelector("#boutique-ouverte-status");
+    function chargerOuverture() {
+      sb.from("reglages").select("valeur").eq("cle", "boutique_ouverte").maybeSingle().then(function (r) {
+        if (r.error) { stOuverte.className = "statut err"; stOuverte.textContent = "Réglage introuvable : lance le bloc SQL de la table reglages dans Supabase."; caseOuverte.disabled = true; return; }
+        caseOuverte.disabled = false;
+        caseOuverte.checked = !r.data || r.data.valeur !== false;
+      });
+    }
+    caseOuverte.addEventListener("change", function () {
+      var v = caseOuverte.checked;
+      caseOuverte.disabled = true; stOuverte.className = "statut"; stOuverte.textContent = "Enregistrement…";
+      sb.from("reglages").upsert({ cle: "boutique_ouverte", valeur: v, updated_at: new Date().toISOString() }).then(function (r) {
+        caseOuverte.disabled = false;
+        if (r.error) { caseOuverte.checked = !v; stOuverte.className = "statut err"; stOuverte.textContent = "Enregistrement impossible : " + r.error.message; return; }
+        stOuverte.className = "statut ok";
+        stOuverte.textContent = v ? "Le tee shirt est disponible à la précommande sur le site." : "Le module du tee shirt est grisé, avec le message « Tee Shirt DPL bientôt disponible ! ».";
+        if (window.DPL_BOUTIQUE_RAFRAICHIR) window.DPL_BOUTIQUE_RAFRAICHIR();
+      });
+    });
     function chargerPrecos() {
+      chargerOuverture();
       sb.from("precommandes").select("*").order("created_at", { ascending: false }).then(function (r) {
         if (r.error) { zonePreco.innerHTML = '<p class="statut err">Impossible de charger les précommandes : ' + esc(r.error.message) + '. Vérifie que la table precommandes a bien été créée dans Supabase.</p>'; return; }
         var tot = {}, n = 0;
